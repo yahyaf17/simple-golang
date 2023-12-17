@@ -1,5 +1,5 @@
 package db
 
-import "native-api-go/native-api-go/models"
+import "native-api-go/models"
 
-var Movies = make(map[string]models.Movie)
+var Movies = make(map[int]*models.Movie)

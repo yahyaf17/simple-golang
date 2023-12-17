@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
-	"native-api-go/native-api-go/db"
-	"native-api-go/native-api-go/models"
-	"native-api-go/native-api-go/utils"
+	"native-api-go/db"
+	"native-api-go/models"
+	"native-api-go/utils"
 	"net/http"
+	"strconv"
 )
 
 func GetMovies(res http.ResponseWriter, req *http.Request) {
@@ -17,7 +18,7 @@ func GetMovies(res http.ResponseWriter, req *http.Request) {
 	var movies []models.Movie
 
 	for _, m := range db.Movies {
-		movies = append(movies, m)
+		movies = append(movies, *m)
 	}
 
 	// parse the movie data into json format
@@ -38,7 +39,7 @@ func GetMovies(res http.ResponseWriter, req *http.Request) {
 	utils.ReturnJsonResponse(res, http.StatusOK, movieJSON)
 }
 
-func GetMovieById(res http.ResponseWriter, req *http.Request) {
+func getMovieById(res http.ResponseWriter, req *http.Request) {
 	if req.Method != "GET" {
 		validateHttpMethod(res)
 		return
@@ -54,7 +55,13 @@ func GetMovieById(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var movie, found = db.Movies[id[0]]
+	idInt, errAtoi := strconv.Atoi(id[0])
+	if errAtoi != nil {
+		failedParseData(res)
+		return
+	}
+
+	var movie, found = db.Movies[idInt]
 	if !found {
 		message, _ := json.Marshal(models.ErrorMsg{
 			Success: false,
@@ -73,6 +80,82 @@ func GetMovieById(res http.ResponseWriter, req *http.Request) {
 	utils.ReturnJsonResponse(res, http.StatusOK, movieJson)
 }
 
+func insertNewMovie(res http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		validateHttpMethod(res)
+		return
+	}
+
+	var newMovie models.Movie
+	err := json.NewDecoder(req.Body).Decode(&newMovie)
+
+	if err != nil {
+		failedParseRequest(res)
+		return
+	}
+
+	id := utils.GetLargestValue(utils.GetMapKeys(db.Movies)) + 1
+	newMovie.ID = id
+	db.Movies[id] = &newMovie
+
+	respNew, err := json.Marshal(&newMovie)
+	if err != nil {
+		failedParseData(res)
+		return
+	}
+
+	utils.ReturnJsonResponse(res, http.StatusCreated, respNew)
+}
+
+func updateMovie(res http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPut {
+		validateHttpMethod(res)
+		return
+	}
+
+	var payload models.Movie
+	err := json.NewDecoder(req.Body).Decode(&payload)
+
+	if err != nil {
+		failedParseRequest(res)
+		return
+	}
+
+	movie, ok := db.Movies[payload.ID]
+	if !ok {
+		message, _ := json.Marshal(models.ErrorMsg{
+			Success: false,
+			Message: "ID not found : " + strconv.Itoa(payload.ID),
+		})
+		utils.ReturnJsonResponse(res, http.StatusInternalServerError, message)
+		return
+	}
+
+	movie.Title = utils.SetIfPresent(payload.Title, movie.Title)
+	movie.Description = utils.SetIfPresent(payload.Description, movie.Description)
+	movie.ReleaseYear = utils.SetIfPresent(payload.ReleaseYear, movie.ReleaseYear)
+
+	respEdit, err := json.Marshal(&movie)
+	if err != nil {
+		failedParseData(res)
+		return
+	}
+
+	utils.ReturnJsonResponse(res, http.StatusOK, respEdit)
+}
+
+func MovieHandlers(res http.ResponseWriter, req *http.Request) {
+	if req.Method == http.MethodPost {
+		insertNewMovie(res, req)
+	} else if req.Method == http.MethodGet {
+		getMovieById(res, req)
+	} else if req.Method == http.MethodPut {
+		updateMovie(res, req)
+	} else {
+		validateHttpMethod(res)
+	}
+}
+
 func validateHttpMethod(res http.ResponseWriter) {
 	message, _ := json.Marshal(models.ErrorMsg{
 		Success: false,
@@ -89,4 +172,13 @@ func failedParseData(res http.ResponseWriter) {
 	})
 
 	utils.ReturnJsonResponse(res, http.StatusInternalServerError, message)
+}
+
+func failedParseRequest(res http.ResponseWriter) {
+	msg, _ := json.Marshal(models.ErrorMsg{
+		Success: false,
+		Message: "Failed parse movie data",
+	})
+
+	utils.ReturnJsonResponse(res, http.StatusInternalServerError, msg)
 }
